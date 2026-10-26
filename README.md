@@ -119,11 +119,69 @@ display to green.
 - **Nothing lights up from the script, but the Serial Monitor works.** Close the Serial
   Monitor, then check that the port exists (`ls /dev/cu.usbmodem*` or `ls /dev/ttyACM*`) and
   set `CLAUDE_STATUS_LIGHT_PORT`.
-- **No port shows up at all.** Try another USB cable (many are charge-only), or double-tap
-  the XIAO's reset button to enter bootloader mode and upload again.
+- **No port shows up at all.** Try another USB cable (many are charge-only). If it still
+  doesn't appear, put the board in bootloader mode and upload again: on ESP32 XIAOs hold
+  **BOOT** while plugging in USB; on SAMD21/RP2040 XIAOs double-tap the reset button.
+- **The Serial Monitor shows nothing on an ESP32 XIAO.** In **Tools**, set
+  **USB CDC On Boot** to **Enabled** and upload again, so `Serial` uses the USB port.
 - **The display works by hand but not from Claude Code.** Check the paths in
   `~/.claude/settings.json` and that the script is executable (`chmod +x`).
 - **Wrong colors or a garbled picture.** Run the layout test from Step 5.
+
+## Going wireless (planned)
+
+Right now the board must be plugged into the computer that runs Claude Code, because the
+script writes to a local USB serial port. Boards with a radio can drop that cable and only
+need USB for power, so the light can sit anywhere in the room, and Claude Code can even run
+on another machine.
+
+Which XIAOs can do it:
+
+| Board | Wi-Fi | Bluetooth LE | Thread / Zigbee |
+|---|---|---|---|
+| XIAO ESP32-C6 | Wi-Fi 6 (2.4 GHz) | BLE 5 | yes (802.15.4) |
+| XIAO ESP32-C3 / ESP32-S3 | 2.4 GHz | BLE 5 | no |
+| XIAO nRF52840 | no | BLE 5 | no |
+| XIAO SAMD21 / RP2040 | no | no | no |
+
+The firmware only needs a new way to receive the same `R` / `B` / `G` / `O` / `T` commands.
+The rest stays as it is. The options, from simplest to most involved:
+
+1. **Wi-Fi + HTTP (recommended first step).** The board joins your Wi-Fi and runs a tiny web
+   server. The script sends `curl http://claude-light.local/cmd?c=B` instead of writing to
+   the serial port, and finds the board by its mDNS name. This is easy to debug from a browser
+   and works from any machine on the network.
+2. **Wi-Fi + MQTT.** The board subscribes to a topic on an MQTT broker (for example
+   Mosquitto or Home Assistant's) and the script publishes to it. This takes more setup, but
+   several lights and several Claude sessions can share one topic, and it works through NAT
+   if the broker is reachable.
+3. **Bluetooth LE.** The board exposes one writable characteristic and the computer writes
+   the command byte to it. It needs no network, but sending from a shell script is fiddly
+   (it needs a helper such as a small Python `bleak` script), and the range is about one room.
+4. **Thread / Matter (ESP32-C6 only).** The light shows up as a Matter device in Apple Home,
+   Google Home or Home Assistant, and the hook triggers it through the smart-home hub. It's
+   the most work, but it fits neatly into an existing smart home.
+
+Planned shape of the change:
+- The firmware keeps USB serial and adds Wi-Fi, with credentials in a `secrets.h` that is
+  not committed (and later, a captive-portal setup page).
+- The script uses HTTP when `CLAUDE_STATUS_LIGHT_URL` is set, and USB serial otherwise.
+- The firmware falls back to a "no connection" pattern when Wi-Fi drops.
+
+## Future ideas
+
+- **Wireless:** Wi-Fi first, then MQTT and BLE (see above).
+- **Other coding agents:** for example OpenAI Codex CLI, whose `notify` setting can trigger
+  "done". The serial commands are tool-agnostic, so this mostly means a new hook config per agent.
+- **Several sessions at once:** one column or color per session, or show "waiting" if any
+  session needs you.
+- **More states:** for example a distinct color for permission prompts or for errors.
+- **Auto brightness or night mode:** dim the light at night, or add a light sensor.
+- **Idle timeout:** turn off a "done" light after a while.
+- **Sound or vibration:** a buzzer for when Claude is waiting on you.
+- **Battery power:** a LiPo pack on the XIAO's battery pads makes the wireless version
+  cable-free.
+- **3D-printed case:** with a diffuser so the dots look softer.
 
 ## Project layout
 
