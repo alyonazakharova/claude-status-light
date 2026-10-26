@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "~/claude-status-light/host/claude-status-light.sh working" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "~/claude-status-light/host/claude-status-light.sh working" }] }
+    ],
+    "Notification": [
+      { "hooks": [{ "type": "command", "command": "~/claude-status-light/host/claude-status-light.sh waiting" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "~/claude-status-light/host/claude-status-light.sh done" }] }
+    ]
+  }
+}
