@@ -3,17 +3,17 @@
 // The matrix is a cat face (eyes, nose, mouth) mounted landscape, 10 wide x 6 tall:
 //
 //    0123456789
-//   0 .###..###.   eyes (3x3 each)
-//   1 .###..###.
-//   2 .###..###.
-//   3 ....NN....   nose
-//   4 ..M.MM.M..   mouth
-//   5 ...M..M...
+//   0 .##....##.   eyes (2x2)
+//   1 .##....##.
+//   2 ....NN....   nose
+//   3 .M..MM..M.   mouth (ω with round lobes)
+//   4 .M..MM..M.
+//   5 ..MM..MM..
 //
 // Reads one-character commands over USB serial (any baud):
-//   'R' -> waiting for your response : red square eyes blink 3x together, then stay on
-//   'B' -> working                   : blue X eyes, each blinking at random
-//   'G' -> finished                  : green square eyes blink 3x together, then stay on
+//   'R' -> waiting for your response : red eyes blink 3x together, then stay on
+//   'B' -> working                   : blue eyes, each blinking at random
+//   'G' -> finished                  : green eyes blink 3x together, then stay on
 //   'O' -> off
 //   'T' -> layout test (top-left LED white, top row yellow, left column cyan)
 //
@@ -26,8 +26,8 @@
 #define WIDTH       6      // LEDs per row as wired
 #define HEIGHT      10     // rows as wired
 #define SERPENTINE  false  // set true if every other row runs backwards (check with 'T')
-#define ROTATION    1      // quarter turns from the wiring to the mounted face; 1 or 3 here (check with 'T')
-#define BRIGHTNESS  8      // 0..255, keep low: 60 LEDs at full white draw ~3.6 A
+#define ROTATION    3     // quarter turns from the wiring to the mounted face; 1 or 3 here (check with 'T')
+#define BRIGHTNESS  15      // 0..255, keep low: 60 LEDs at full white draw ~3.6 A
 
 #define NUM_LEDS    (WIDTH * HEIGHT)
 
@@ -82,36 +82,33 @@ void setPixel(int x, int y, uint32_t color) {
 }
 
 // ---- Cat face --------------------------------------------------------------
-const int EYE_SIZE    = 3;
-const int EYE_Y       = 0;
+// Eyes are 2x2, drawn by their left column from the top row.
+const int EYE_SIZE    = 2;
 const int LEFT_EYE_X  = 1;
-const int RIGHT_EYE_X = 6;
+const int RIGHT_EYE_X = 7;
 
-void drawSquareEye(int ex, uint32_t color) {
+void drawEye(int ex, uint32_t color) {
   for (int dy = 0; dy < EYE_SIZE; dy++)
     for (int dx = 0; dx < EYE_SIZE; dx++)
-      setPixel(ex + dx, EYE_Y + dy, color);
-}
-
-void drawXEye(int ex, uint32_t color) {
-  for (int i = 0; i < EYE_SIZE; i++) {
-    setPixel(ex + i,                EYE_Y + i, color);
-    setPixel(ex + EYE_SIZE - 1 - i, EYE_Y + i, color);
-  }
+      setPixel(ex + dx, dy, color);
 }
 
 void drawNoseAndMouth() {
   uint32_t nose  = matrix.Color(255, 60, 90);
   uint32_t mouth = matrix.Color(120, 120, 120);
-  setPixel(4, 3, nose);
-  setPixel(5, 3, nose);
-  // ω-shaped cat mouth hanging from the nose
-  setPixel(2, 4, mouth);
-  setPixel(4, 4, mouth);
-  setPixel(5, 4, mouth);
-  setPixel(7, 4, mouth);
+  setPixel(4, 2, nose);
+  setPixel(5, 2, nose);
+  // Cat mouth (ω): two round U-shaped lobes meeting under the nose.
+  for (int y = 3; y <= 4; y++) {
+    setPixel(1, y, mouth);
+    setPixel(4, y, mouth);
+    setPixel(5, y, mouth);
+    setPixel(8, y, mouth);
+  }
+  setPixel(2, 5, mouth);
   setPixel(3, 5, mouth);
   setPixel(6, 5, mouth);
+  setPixel(7, 5, mouth);
 }
 
 // ---- Working: each eye blinks on its own at random moments ------------------
@@ -137,8 +134,8 @@ void renderFrame(unsigned long now) {
   switch (mode) {
     case MODE_WORKING: {
       uint32_t blue = matrix.Color(0, 64, 255);
-      if (eyeOpen(blinks[0], now)) drawXEye(LEFT_EYE_X, blue);
-      if (eyeOpen(blinks[1], now)) drawXEye(RIGHT_EYE_X, blue);
+      if (eyeOpen(blinks[0], now)) drawEye(LEFT_EYE_X, blue);
+      if (eyeOpen(blinks[1], now)) drawEye(RIGHT_EYE_X, blue);
       drawNoseAndMouth();
       break;
     }
@@ -149,8 +146,8 @@ void renderFrame(unsigned long now) {
       // Both eyes blink 3x together (250 ms on / 250 ms off), then stay on.
       unsigned long t = now - modeStartedAt;
       if (t >= 1500 || (t / 250) % 2 == 0) {
-        drawSquareEye(LEFT_EYE_X, color);
-        drawSquareEye(RIGHT_EYE_X, color);
+        drawEye(LEFT_EYE_X, color);
+        drawEye(RIGHT_EYE_X, color);
       }
       drawNoseAndMouth();
       break;

@@ -7,19 +7,19 @@ The 6x10 matrix is mounted landscape (10 wide, 6 tall) behind a cat-face case an
 eyes, a nose and a mouth:
 
 ```
-. # # # . . # # # .     eyes (3x3 each, color shows the state)
-. # # # . . # # # .
-. # # # . . # # # .
+. # # . . . . # # .     eyes (2x2, color shows the state)
+. # # . . . . # # .
 . . . . N N . . . .     nose (pink)
-. . M . M M . M . .     mouth (dim white)
-. . . M . . M . . .
+. M . . M M . . M .     mouth (ω, dim white)
+. M . . M M . . M .
+. . M M . . M M . .
 ```
 
 | Claude Code state | Serial cmd | Eyes |
 |---|---|---|
-| Working | `B` | blue **X** eyes, each blinking at random |
-| Waiting for your response | `R` | red **square** eyes blink 3 times together, then stay on |
-| Done (or interrupted with Esc) | `G` | green **square** eyes blink 3 times together, then stay on |
+| Working | `B` | blue eyes, each blinking at random |
+| Waiting for your response | `R` | red eyes blink 3 times together, then stay on |
+| Done (or interrupted with Esc) | `G` | green eyes blink 3 times together, then stay on |
 | Off | `O` | everything off |
 | Layout test | `T` | top-left LED white, top row yellow, left column cyan |
 
@@ -81,7 +81,7 @@ to match.
    - The lines zig-zag instead of being straight: set `SERPENTINE` to `true`.
    - The white LED is top-right instead of top-left: you can ignore it, because the face is
      symmetric.
-5. Try the other commands too: `B` (X eyes), `R` and `G` (square eyes), `O` (off).
+5. Try the other commands too: `B` (blue, blinking), `R` (red), `G` (green), `O` (off).
 6. **Close the Serial Monitor.** Only one program can use the port at a time, so the hook
    script can't reach the board while it's open.
 
@@ -126,8 +126,8 @@ The hooks map Claude Code events to the display:
 
 ## Step 8: Use it
 
-Start Claude Code and give it a task. The cat gets blinking blue X eyes while Claude works,
-red square eyes when it asks you something, and green square eyes when it's done.
+Start Claude Code and give it a task. The cat gets randomly blinking blue eyes while Claude
+works, red eyes when it asks you something, and green eyes when it's done.
 
 Claude Code has no hook for pressing Esc, so while Claude works the script also watches the
 session transcript in the background. When it sees that you interrupted, it switches the
