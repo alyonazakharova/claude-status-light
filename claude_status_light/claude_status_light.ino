@@ -17,9 +17,23 @@
 //   'O' -> off
 //   'T' -> layout test (top-left LED white, top row yellow, left column cyan)
 //
+// On ESP32 boards with a secrets.h next to this file (copy secrets.example.h), the light
+// also joins Wi-Fi and takes the same commands over HTTP:
+//   http://claude-light.local/cmd?c=B
+//
 // Library: Adafruit NeoPixel (Library Manager -> "Adafruit NeoPixel")
 
 #include <Adafruit_NeoPixel.h>
+
+#if defined(ESP32) && __has_include("secrets.h")
+  #define USE_WIFI 1
+  #include "secrets.h"
+  #include <WiFi.h>
+  #include <WebServer.h>
+  #include <ESPmDNS.h>
+#else
+  #define USE_WIFI 0
+#endif
 
 // ---- Hardware config -------------------------------------------------------
 #define LED_PIN     D0     // 6x10 RGB Matrix for XIAO drives the LEDs from D0
@@ -28,6 +42,7 @@
 #define SERPENTINE  false  // set true if every other row runs backwards (check with 'T')
 #define ROTATION    3     // quarter turns from the wiring to the mounted face; 1 or 3 here (check with 'T')
 #define BRIGHTNESS  15      // 0..255, keep low: 60 LEDs at full white draw ~3.6 A
+#define HOSTNAME    "claude-light"  // Wi-Fi only: reachable as http://claude-light.local/
 
 #define NUM_LEDS    (WIDTH * HEIGHT)
 
@@ -176,18 +191,76 @@ void setMode(Mode m) {
   renderFrame(modeStartedAt);
 }
 
-void handleSerial() {
-  while (Serial.available()) {
-    switch (toupper(Serial.read())) {
-      case 'R': setMode(MODE_WAITING); break;
-      case 'B': setMode(MODE_WORKING); break;
-      case 'G': setMode(MODE_DONE);    break;
-      case 'O': setMode(MODE_OFF);     break;
-      case 'T': setMode(MODE_TEST);    break;
-      default: break;  // ignore newlines and noise
-    }
+// Returns false for characters that aren't commands (newlines, noise).
+bool handleCommand(char c) {
+  switch (toupper(c)) {
+    case 'R': setMode(MODE_WAITING); return true;
+    case 'B': setMode(MODE_WORKING); return true;
+    case 'G': setMode(MODE_DONE);    return true;
+    case 'O': setMode(MODE_OFF);     return true;
+    case 'T': setMode(MODE_TEST);    return true;
+    default:  return false;
   }
 }
+
+void handleSerial() {
+  while (Serial.available()) {
+    handleCommand(Serial.read());
+  }
+}
+
+// ---- Wi-Fi: the same commands over HTTP --------------------------------------
+#if USE_WIFI
+WebServer server(80);
+
+const char *modeName() {
+  switch (mode) {
+    case MODE_WAITING: return "waiting";
+    case MODE_WORKING: return "working";
+    case MODE_DONE:    return "done";
+    case MODE_TEST:    return "test";
+    default:           return "off";
+  }
+}
+
+// GET /cmd?c=B
+void handleHttpCommand() {
+  String c = server.arg("c");
+  if (c.length() != 1 || !handleCommand(c[0])) {
+    server.send(400, "text/plain", "usage: /cmd?c=R|B|G|O|T\n");
+    return;
+  }
+  server.send(200, "text/plain", "ok\n");
+}
+
+void setupWifi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.setHostname(HOSTNAME);
+  WiFi.setSleep(false);  // answer requests right away instead of after a power-save nap
+  WiFi.setAutoReconnect(true);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  server.on("/cmd", handleHttpCommand);
+  server.on("/", [] { server.send(200, "text/plain", String("claude-status-light: ") + modeName() + "\n"); });
+  server.begin();
+}
+
+// Wi-Fi connects and reconnects in the background; this starts mDNS once and serves requests.
+void serviceWifi() {
+  static bool wasConnected = false;
+  static bool mdnsStarted  = false;
+  bool connected = WiFi.status() == WL_CONNECTED;
+  if (connected && !wasConnected) {
+    if (!mdnsStarted && MDNS.begin(HOSTNAME)) {
+      MDNS.addService("http", "tcp", 80);
+      mdnsStarted = true;
+    }
+    Serial.printf("Wi-Fi connected: http://%s.local/ (%s)\n", HOSTNAME, WiFi.localIP().toString().c_str());
+  }
+  wasConnected = connected;
+  server.handleClient();
+}
+#endif
 
 // ---- Arduino entry points --------------------------------------------------
 void setup() {
@@ -195,10 +268,16 @@ void setup() {
   matrix.begin();
   matrix.setBrightness(BRIGHTNESS);
   setMode(MODE_OFF);
+#if USE_WIFI
+  setupWifi();
+#endif
 }
 
 void loop() {
   handleSerial();
+#if USE_WIFI
+  serviceWifi();
+#endif
 
   static unsigned long lastFrame = 0;
   unsigned long now = millis();

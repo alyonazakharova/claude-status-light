@@ -37,7 +37,8 @@ on each event a shell script sends one character over USB serial to the board.
 - A computer running macOS or Linux with [Claude Code](https://docs.claude.com/en/docs/claude-code) installed
 - [Arduino IDE](https://www.arduino.cc/en/software) 2.x
 
-The board has to be plugged into the same computer that runs Claude Code.
+Over USB, the board has to be plugged into the computer that runs Claude Code. ESP32 boards
+can also work over Wi-Fi (see [Optional: Wi-Fi](#optional-wi-fi-esp32-boards)).
 
 ## Step 1: Get the code
 
@@ -147,14 +148,52 @@ display to green.
   `~/.claude/settings.json` and that the script is executable (`chmod +x`).
 - **Wrong colors or a garbled picture.** Run the layout test from Step 5.
 
-## Going wireless (planned)
+## Optional: Wi-Fi (ESP32 boards)
 
-Right now the board must be plugged into the computer that runs Claude Code, because the
-script writes to a local USB serial port. Boards with a radio can drop that cable and only
-need USB for power, so the light can sit anywhere in the room, and Claude Code can even run
-on another machine.
+On an ESP32 XIAO (C3, C6, S3) the light can also join your Wi-Fi and take commands over
+HTTP. USB is then only needed for power, so the cat can sit anywhere in the room, and Claude
+Code can even run on another computer on the same network. USB serial keeps working too.
 
-Which XIAOs can do it:
+1. **Add your Wi-Fi details.** Copy `claude_status_light/secrets.example.h` to
+   `claude_status_light/secrets.h` (same folder) and fill in your network name and password.
+   `secrets.h` is git-ignored, so the password stays on your computer. The board needs a
+   2.4 GHz network; the XIAO can't join 5 GHz-only networks.
+2. **Flash the firmware again** as in Step 4. The firmware turns Wi-Fi on whenever
+   `secrets.h` is present.
+3. **Check that it's online.** Open the Serial Monitor and press the board's RESET button.
+   After a few seconds it prints something like
+   `Wi-Fi connected: http://claude-light.local/ (192.168.1.42)`.
+   Open http://claude-light.local/ in a browser: it answers with the current state.
+4. **Try it by hand:**
+
+   ```sh
+   curl "http://claude-light.local/cmd?c=B"
+   CLAUDE_STATUS_LIGHT_URL=http://claude-light.local ~/claude-status-light/host/claude-status-light.sh done
+   ```
+
+5. **Tell the hooks to use Wi-Fi.** Add an `env` entry to `~/.claude/settings.json`, next to
+   `"hooks"`, and restart Claude Code:
+
+   ```json
+   "env": {
+     "CLAUDE_STATUS_LIGHT_URL": "http://claude-light.local"
+   }
+   ```
+
+   The script tries HTTP first and falls back to USB if the light doesn't answer within
+   about a second.
+
+Notes:
+- `.local` names need mDNS (built into macOS; on Linux, `avahi-daemon`). If the name doesn't
+  resolve, use the IP address from the Serial Monitor instead, and ideally give the board a
+  fixed address in your router.
+- On macOS, the first request may make your terminal app ask for **Local Network** access.
+  Allow it, or HTTP requests will fail and the script will fall back to USB.
+- Anyone on your network can change the light. There's no password, since all it does is
+  change the cat's eyes.
+- To change the name, edit `HOSTNAME` at the top of the `.ino` file.
+
+### Other wireless options (future)
 
 | Board | Wi-Fi | Bluetooth LE | Thread / Zigbee |
 |---|---|---|---|
@@ -163,33 +202,17 @@ Which XIAOs can do it:
 | XIAO nRF52840 | no | BLE 5 | no |
 | XIAO SAMD21 / RP2040 | no | no | no |
 
-The firmware only needs a new way to receive the same `R` / `B` / `G` / `O` / `T` commands.
-The rest stays as it is. The options, from simplest to most involved:
-
-1. **Wi-Fi + HTTP (recommended first step).** The board joins your Wi-Fi and runs a tiny web
-   server. The script sends `curl http://claude-light.local/cmd?c=B` instead of writing to
-   the serial port, and finds the board by its mDNS name. This is easy to debug from a browser
-   and works from any machine on the network.
-2. **Wi-Fi + MQTT.** The board subscribes to a topic on an MQTT broker (for example
-   Mosquitto or Home Assistant's) and the script publishes to it. This takes more setup, but
-   several lights and several Claude sessions can share one topic, and it works through NAT
-   if the broker is reachable.
-3. **Bluetooth LE.** The board exposes one writable characteristic and the computer writes
-   the command byte to it. It needs no network, but sending from a shell script is fiddly
-   (it needs a helper such as a small Python `bleak` script), and the range is about one room.
-4. **Thread / Matter (ESP32-C6 only).** The light shows up as a Matter device in Apple Home,
-   Google Home or Home Assistant, and the hook triggers it through the smart-home hub. It's
-   the most work, but it fits neatly into an existing smart home.
-
-Planned shape of the change:
-- The firmware keeps USB serial and adds Wi-Fi, with credentials in a `secrets.h` that is
-  not committed (and later, a captive-portal setup page).
-- The script uses HTTP when `CLAUDE_STATUS_LIGHT_URL` is set, and USB serial otherwise.
-- The firmware falls back to a "no connection" pattern when Wi-Fi drops.
+- **Wi-Fi + MQTT:** the board subscribes to a topic on a broker (Mosquitto, Home
+  Assistant). Several lights and sessions can share one topic.
+- **Bluetooth LE:** no network needed, but sending from a shell script needs a helper (for
+  example a small Python `bleak` script), and the range is about one room.
+- **Thread / Matter (ESP32-C6 only):** the light shows up in Apple Home, Google Home or Home
+  Assistant.
+- **Setup without editing files:** a captive-portal page to enter Wi-Fi details from a phone.
 
 ## Future ideas
 
-- **Wireless:** Wi-Fi first, then MQTT and BLE (see above).
+- **More wireless options:** MQTT, BLE, Matter, and Wi-Fi setup from a phone (see above).
 - **Other coding agents:** for example OpenAI Codex CLI, whose `notify` setting can trigger
   "done". The serial commands are tool-agnostic, so this mostly means a new hook config per agent.
 - **Several sessions at once:** one column or color per session, or show "waiting" if any
@@ -206,6 +229,7 @@ Planned shape of the change:
 
 ```
 claude_status_light/claude_status_light.ino   firmware for the XIAO
+claude_status_light/secrets.example.h         template for Wi-Fi details (copy to secrets.h)
 host/claude-status-light.sh                   hook script that talks to the board
 host/hooks.json                               example Claude Code hook config
 ```

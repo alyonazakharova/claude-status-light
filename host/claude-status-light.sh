@@ -2,6 +2,8 @@
 # Send a status command to the Claude status light.
 # Usage: claude-status-light.sh waiting|working|done|off|test
 # Port: auto-detected, override with CLAUDE_STATUS_LIGHT_PORT=/dev/cu.usbmodemXXXX
+# Wi-Fi: set CLAUDE_STATUS_LIGHT_URL=http://claude-light.local to send over HTTP first;
+# USB serial is still tried when the light can't be reached.
 #
 # Claude Code has no hook for a manual interrupt (Esc), so while working a
 # background watcher tails the session transcript and switches to "done"
@@ -18,6 +20,15 @@ case "$1" in
 esac
 
 send() {
+  # Short timeouts so an unreachable light can't stall Claude.
+  if [ -n "$CLAUDE_STATUS_LIGHT_URL" ] &&
+     curl -fsS --connect-timeout 1 --max-time 2 "${CLAUDE_STATUS_LIGHT_URL%/}/cmd?c=$1" >/dev/null 2>&1; then
+    return 0
+  fi
+  send_serial "$1"
+}
+
+send_serial() {
   port="${CLAUDE_STATUS_LIGHT_PORT:-$(ls /dev/cu.usbmodem* /dev/ttyACM* 2>/dev/null | head -n 1)}"
   [ -n "$port" ] && [ -e "$port" ] || return 0
   # Write in the background with a timeout so a stuck port can't stall Claude.
