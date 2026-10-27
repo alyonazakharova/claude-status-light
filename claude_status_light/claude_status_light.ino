@@ -1,11 +1,21 @@
 // Claude Code status light for Seeed XIAO + 6x10 RGB Matrix (WS2812)
 //
+// The matrix is a cat face (eyes, nose, mouth) mounted landscape, 10 wide x 6 tall:
+//
+//    0123456789
+//   0 .###..###.   eyes (3x3 each)
+//   1 .###..###.
+//   2 .###..###.
+//   3 ....NN....   nose
+//   4 ..M.MM.M..   mouth
+//   5 ...M..M...
+//
 // Reads one-character commands over USB serial (any baud):
-//   'R' -> waiting for your response : red dot in the middle
-//   'B' -> working                   : blue dots sliding left to right through the middle
-//   'G' -> finished                  : green blinks 3x, then a steady green dot
+//   'R' -> waiting for your response : red square eyes blink 3x together, then stay on
+//   'B' -> working                   : blue X eyes, each blinking at random
+//   'G' -> finished                  : green square eyes blink 3x together, then stay on
 //   'O' -> off
-//   'T' -> layout test (LED 0 white, first row yellow, first column cyan)
+//   'T' -> layout test (top-left LED white, top row yellow, left column cyan)
 //
 // Library: Adafruit NeoPixel (Library Manager -> "Adafruit NeoPixel")
 
@@ -13,12 +23,26 @@
 
 // ---- Hardware config -------------------------------------------------------
 #define LED_PIN     D0     // 6x10 RGB Matrix for XIAO drives the LEDs from D0
-#define WIDTH       6      // columns (LEDs per row as wired)
-#define HEIGHT      10     // rows
+#define WIDTH       6      // LEDs per row as wired
+#define HEIGHT      10     // rows as wired
 #define SERPENTINE  false  // set true if every other row runs backwards (check with 'T')
-#define BRIGHTNESS  8     // 0..255, keep low: 60 LEDs at full white draw ~3.6 A
+#define ROTATION    1      // quarter turns from the wiring to the mounted face; 1 or 3 here (check with 'T')
+#define BRIGHTNESS  8      // 0..255, keep low: 60 LEDs at full white draw ~3.6 A
 
 #define NUM_LEDS    (WIDTH * HEIGHT)
+
+// The face is drawn on a landscape canvas; ROTATION turns it onto the wiring.
+#if ROTATION % 2 == 0
+  #define FACE_W WIDTH
+  #define FACE_H HEIGHT
+#else
+  #define FACE_W HEIGHT
+  #define FACE_H WIDTH
+#endif
+
+#if FACE_W != 10 || FACE_H != 6
+  #error "The cat face is drawn for a 10x6 landscape canvas: pick a ROTATION that makes the matrix landscape"
+#endif
 
 Adafruit_NeoPixel matrix(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
@@ -26,6 +50,15 @@ enum Mode { MODE_OFF, MODE_WAITING, MODE_WORKING, MODE_DONE, MODE_TEST };
 
 Mode mode = MODE_OFF;
 unsigned long modeStartedAt = 0;
+
+// Declared before any function: the Arduino IDE inserts function prototypes there.
+struct Blink {
+  unsigned long since;      // start of the current open+closed cycle
+  unsigned long openFor;
+  unsigned long closedFor;
+};
+
+Blink blinks[2];
 
 // ---- Helpers ---------------------------------------------------------------
 uint16_t xy(int x, int y) {
@@ -35,75 +68,115 @@ uint16_t xy(int x, int y) {
   return y * WIDTH + x;
 }
 
+// Face coordinates (x right, y down) -> LED index.
 void setPixel(int x, int y, uint32_t color) {
-  if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) return;
-  matrix.setPixelColor(xy(x, y), color);
-}
-
-// Even-sized matrix has no single center pixel, so the "dot" is a 2x2 block.
-void drawCenterDot(uint32_t color) {
-  int cx = WIDTH / 2 - 1;
-  int cy = HEIGHT / 2 - 1;
-  setPixel(cx,     cy,     color);
-  setPixel(cx + 1, cy,     color);
-  setPixel(cx,     cy + 1, color);
-  setPixel(cx + 1, cy + 1, color);
-}
-
-// ---- Working animation: blue dots sliding left to right through the middle --
-const int   DOT_SPACING = 3;      // columns between dots; WIDTH divisible by it loops seamlessly
-const float DOT_SPEED   = 0.12f;  // columns per frame (~3 columns/s at 25 fps)
-
-float dotOffset = 0;
-
-void resetDots() {
-  dotOffset = 0;
-}
-
-// A dot is 1 column wide and 2 rows tall so it sits exactly on the middle line.
-void drawDotColumn(int x, uint8_t level) {
-  uint32_t color = matrix.Color(0, level / 4, level);
-  int y = HEIGHT / 2 - 1;
-  setPixel(x, y,     color);
-  setPixel(x, y + 1, color);
-}
-
-void stepDots() {
-  matrix.clear();
-  dotOffset += DOT_SPEED;
-  if (dotOffset >= DOT_SPACING) dotOffset -= DOT_SPACING;
-
-  // Split each dot's brightness between the two columns it straddles for smooth motion.
-  for (float pos = dotOffset; pos < WIDTH; pos += DOT_SPACING) {
-    int x = (int)pos;
-    float frac = pos - x;
-    drawDotColumn(x, 255 * (1 - frac));
-    drawDotColumn((x + 1) % WIDTH, 255 * frac);
+  if (x < 0 || x >= FACE_W || y < 0 || y >= FACE_H) return;
+  int wx, wy;
+  switch (ROTATION & 3) {
+    case 0:  wx = x;              wy = y;               break;
+    case 1:  wx = WIDTH - 1 - y;  wy = x;               break;
+    case 2:  wx = WIDTH - 1 - x;  wy = HEIGHT - 1 - y;  break;
+    default: wx = y;              wy = HEIGHT - 1 - x;  break;
   }
+  matrix.setPixelColor(xy(wx, wy), color);
+}
+
+// ---- Cat face --------------------------------------------------------------
+const int EYE_SIZE    = 3;
+const int EYE_Y       = 0;
+const int LEFT_EYE_X  = 1;
+const int RIGHT_EYE_X = 6;
+
+void drawSquareEye(int ex, uint32_t color) {
+  for (int dy = 0; dy < EYE_SIZE; dy++)
+    for (int dx = 0; dx < EYE_SIZE; dx++)
+      setPixel(ex + dx, EYE_Y + dy, color);
+}
+
+void drawXEye(int ex, uint32_t color) {
+  for (int i = 0; i < EYE_SIZE; i++) {
+    setPixel(ex + i,                EYE_Y + i, color);
+    setPixel(ex + EYE_SIZE - 1 - i, EYE_Y + i, color);
+  }
+}
+
+void drawNoseAndMouth() {
+  uint32_t nose  = matrix.Color(255, 60, 90);
+  uint32_t mouth = matrix.Color(120, 120, 120);
+  setPixel(4, 3, nose);
+  setPixel(5, 3, nose);
+  // ω-shaped cat mouth hanging from the nose
+  setPixel(2, 4, mouth);
+  setPixel(4, 4, mouth);
+  setPixel(5, 4, mouth);
+  setPixel(7, 4, mouth);
+  setPixel(3, 5, mouth);
+  setPixel(6, 5, mouth);
+}
+
+// ---- Working: each eye blinks on its own at random moments ------------------
+void startBlinkCycle(Blink &b, unsigned long now) {
+  b.since     = now;
+  b.openFor   = random(300, 1800);
+  b.closedFor = random(100, 220);
+}
+
+bool eyeOpen(Blink &b, unsigned long now) {
+  unsigned long t = now - b.since;
+  if (t >= b.openFor + b.closedFor) {
+    startBlinkCycle(b, now);
+    return true;
+  }
+  return t < b.openFor;
+}
+
+// ---- Drawing ---------------------------------------------------------------
+void renderFrame(unsigned long now) {
+  matrix.clear();
+
+  switch (mode) {
+    case MODE_WORKING: {
+      uint32_t blue = matrix.Color(0, 64, 255);
+      if (eyeOpen(blinks[0], now)) drawXEye(LEFT_EYE_X, blue);
+      if (eyeOpen(blinks[1], now)) drawXEye(RIGHT_EYE_X, blue);
+      drawNoseAndMouth();
+      break;
+    }
+
+    case MODE_WAITING:
+    case MODE_DONE: {
+      uint32_t color = mode == MODE_WAITING ? matrix.Color(255, 0, 0) : matrix.Color(0, 255, 0);
+      // Both eyes blink 3x together (250 ms on / 250 ms off), then stay on.
+      unsigned long t = now - modeStartedAt;
+      if (t >= 1500 || (t / 250) % 2 == 0) {
+        drawSquareEye(LEFT_EYE_X, color);
+        drawSquareEye(RIGHT_EYE_X, color);
+      }
+      drawNoseAndMouth();
+      break;
+    }
+
+    case MODE_TEST:
+      for (int x = 0; x < FACE_W; x++) setPixel(x, 0, matrix.Color(255, 180, 0));
+      for (int y = 0; y < FACE_H; y++) setPixel(0, y, matrix.Color(0, 200, 200));
+      setPixel(0, 0, matrix.Color(255, 255, 255));
+      break;
+
+    default:
+      break;
+  }
+  matrix.show();
 }
 
 // ---- Mode switching --------------------------------------------------------
 void setMode(Mode m) {
   mode = m;
   modeStartedAt = millis();
-  matrix.clear();
-
-  switch (mode) {
-    case MODE_WAITING:
-      drawCenterDot(matrix.Color(255, 0, 0));
-      break;
-    case MODE_WORKING:
-      resetDots();
-      break;
-    case MODE_TEST:
-      for (int x = 0; x < WIDTH; x++)  setPixel(x, 0, matrix.Color(255, 180, 0));
-      for (int y = 0; y < HEIGHT; y++) setPixel(0, y, matrix.Color(0, 200, 200));
-      matrix.setPixelColor(0, matrix.Color(255, 255, 255));
-      break;
-    default:
-      break;
+  if (mode == MODE_WORKING) {
+    startBlinkCycle(blinks[0], modeStartedAt);
+    startBlinkCycle(blinks[1], modeStartedAt);
   }
-  matrix.show();
+  renderFrame(modeStartedAt);
 }
 
 void handleSerial() {
@@ -132,33 +205,9 @@ void loop() {
 
   static unsigned long lastFrame = 0;
   unsigned long now = millis();
-
-  switch (mode) {
-    case MODE_WORKING:
-      if (now - lastFrame >= 40) {  // ~25 fps
-        lastFrame = now;
-        stepDots();
-        matrix.show();
-      }
-      break;
-
-    case MODE_DONE: {
-      // 3 blinks (250 ms on / 250 ms off), then a steady dot.
-      unsigned long t = now - modeStartedAt;
-      bool on = t >= 1500 || (t / 250) % 2 == 0;
-      static bool wasOn = false;
-      static unsigned long lastModeStart = 0;
-      if (on != wasOn || lastModeStart != modeStartedAt) {
-        wasOn = on;
-        lastModeStart = modeStartedAt;
-        matrix.clear();
-        if (on) drawCenterDot(matrix.Color(0, 255, 0));
-        matrix.show();
-      }
-      break;
-    }
-
-    default:
-      break;  // static frames are drawn once in setMode()
+  bool animated = mode == MODE_WORKING || mode == MODE_WAITING || mode == MODE_DONE;
+  if (animated && now - lastFrame >= 40) {  // ~25 fps
+    lastFrame = now;
+    renderFrame(now);
   }
 }

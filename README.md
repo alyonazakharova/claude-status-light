@@ -1,15 +1,29 @@
 # Claude Status Light
 
-A small LED matrix on your desk that shows what Claude Code is doing, so you can look away
-from the terminal and still know when it needs you.
+A little LED cat face on your desk that shows what Claude Code is doing, so you can look
+away from the terminal and still know when it needs you.
 
-| Claude Code state | Serial cmd | Display |
+The 6x10 matrix is mounted landscape (10 wide, 6 tall) behind a cat-face case and draws
+eyes, a nose and a mouth:
+
+```
+. # # # . . # # # .     eyes (3x3 each, color shows the state)
+. # # # . . # # # .
+. # # # . . # # # .
+. . . . N N . . . .     nose (pink)
+. . M . M M . M . .     mouth (dim white)
+. . . M . . M . . .
+```
+
+| Claude Code state | Serial cmd | Eyes |
 |---|---|---|
-| Waiting for your response | `R` | red dot in the middle |
-| Working | `B` | blue dots sliding across |
-| Done (or interrupted with Esc) | `G` | 3 green blinks, then a steady green dot |
-| Off | `O` | blank |
-| Layout test | `T` | LED 0 white, row 0 yellow, column 0 cyan |
+| Working | `B` | blue **X** eyes, each blinking at random |
+| Waiting for your response | `R` | red **square** eyes blink 3 times together, then stay on |
+| Done (or interrupted with Esc) | `G` | green **square** eyes blink 3 times together, then stay on |
+| Off | `O` | everything off |
+| Layout test | `T` | top-left LED white, top row yellow, left column cyan |
+
+The nose and mouth stay lit in every state except off and the layout test.
 
 It works through [Claude Code hooks](https://docs.claude.com/en/docs/claude-code/hooks):
 on each event a shell script sends one character over USB serial to the board.
@@ -18,6 +32,7 @@ on each event a shell script sends one character over USB serial to the board.
 
 - A **Seeed Studio XIAO** board (any variant supported by the Arduino IDE)
 - A **6x10 RGB Matrix for XIAO** (WS2812 LEDs, data on pin `D0`)
+- Optionally, a 3D-printed cat-face case for the matrix
 - A USB-C data cable (not a charge-only cable)
 - A computer running macOS or Linux with [Claude Code](https://docs.claude.com/en/docs/claude-code) installed
 - [Arduino IDE](https://www.arduino.cc/en/software) 2.x
@@ -57,13 +72,17 @@ to match.
 ## Step 5: Check the LED layout
 
 1. Open **Tools → Serial Monitor**.
-2. Type `T` and press Enter. You should see a white LED in a corner, a yellow line along the
-   top row and a cyan line down the first column.
-3. If the picture is wrong, edit the settings at the top of the `.ino` file and upload again:
-   - The yellow row zig-zags instead of being a straight line: set `SERPENTINE` to `true`.
-   - The yellow line runs down instead of across: swap the `WIDTH` and `HEIGHT` values.
-4. Try the other commands too: `R`, `B`, `G`, `O`.
-5. **Close the Serial Monitor.** Only one program can use the port at a time, so the hook
+2. Hold the matrix the way it will sit in the case: landscape, 10 LEDs wide and 6 tall.
+3. Type `T` and press Enter. You should see a yellow line along the **top** edge (10 LEDs), a
+   cyan line down the **left** edge (6 LEDs) and a white LED in the top-left corner.
+4. If the picture is wrong, edit the settings at the top of the `.ino` file and upload again:
+   - The yellow line is along the bottom (the face would be upside down): change `ROTATION`
+     from `1` to `3`, or from `3` to `1`.
+   - The lines zig-zag instead of being straight: set `SERPENTINE` to `true`.
+   - The white LED is top-right instead of top-left: you can ignore it, because the face is
+     symmetric.
+5. Try the other commands too: `B` (X eyes), `R` and `G` (square eyes), `O` (off).
+6. **Close the Serial Monitor.** Only one program can use the port at a time, so the hook
    script can't reach the board while it's open.
 
 The LED brightness is set by `BRIGHTNESS` (0–255). Keep it low: 60 LEDs at full white
@@ -107,8 +126,8 @@ The hooks map Claude Code events to the display:
 
 ## Step 8: Use it
 
-Start Claude Code and give it a task. The matrix turns blue while Claude works, red when it
-asks you something, and green when it's done.
+Start Claude Code and give it a task. The cat gets blinking blue X eyes while Claude works,
+red square eyes when it asks you something, and green square eyes when it's done.
 
 Claude Code has no hook for pressing Esc, so while Claude works the script also watches the
 session transcript in the background. When it sees that you interrupted, it switches the
